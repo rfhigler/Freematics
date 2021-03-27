@@ -21,6 +21,10 @@
 #include "telelogger.h"
 #include "telemesh.h"
 #include "teleclient.h"
+#if SERVER_ENCRYPTION == CRYPT_CHACHA20
+#include ".pio/libdeps/esp32dev/mbedtls/include/mbedtls/chacha20.h"
+#include ".pio/libdeps/esp32dev/mbedtls/include/mbedtls/base64.h"
+#endif
 #ifdef BOARD_HAS_PSRAM
 #include "esp_himem.h"
 #endif
@@ -1045,7 +1049,68 @@ void telemetry(void* inst)
 
       // start transmission
       if (ledMode == 0) digitalWrite(PIN_LED, HIGH);
-      if (teleClient.transmit(store.buffer(), store.length())) {
+#if SERVER_ENCRYPTION == CRYPT_CHACHA20
+      char *orig_send_buf = store.buffer();
+      unsigned int orig_send_buf_len = store.length();
+      if ((orig_send_buf_len + 12) > 1024) {
+        Serial.println("Outputbuffer too small (default: 1024 bytes) for ChaCha20+Base64 of input!");
+        continue;
+      }
+      // reserve buffer on stack
+      char buffer_output[1024];
+      char buffer_base64_input[1024];
+      int fill_pointer = 0;
+      buffer_output[0] = 'C';
+      buffer_output[1] = 'h';
+      buffer_output[2] = 'a';
+      buffer_output[3] = 'C';
+      buffer_output[4] = 'h';
+      buffer_output[5] = 'a';
+      fill_pointer += 6;
+      // gen nonce
+      unsigned int nonce[3];
+      nonce[0] = esp_random();
+      nonce[1] = esp_random();
+      nonce[2] = esp_random();
+      memcpy(buffer_base64_input, &nonce, 12);
+      // chacha20
+      char const *key = CHACHA20_KEY;
+      mbedtls_chacha20_context ctx;
+      mbedtls_chacha20_init(&ctx);
+      int res = mbedtls_chacha20_crypt(\
+        (const unsigned char *)key, \
+        (const unsigned char *)&buffer_base64_input, \
+        0, \
+        (size_t)orig_send_buf_len, \
+        (unsigned char *)orig_send_buf, \
+        ((unsigned char *)&buffer_base64_input)+12);
+      if (res != 0) {
+        Serial.println("Error during ChaCha20 encryption!");
+        continue;
+      }
+      // base64 encode
+      size_t b64_len_written;
+      res = mbedtls_base64_encode(\
+      ((unsigned char *)&buffer_output) + fill_pointer, \
+      1024-fill_pointer, &b64_len_written, \
+      (const unsigned char *)&buffer_base64_input, \
+      12+orig_send_buf_len);
+      if (res != 0) {
+        if (res != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL) {
+          Serial.println("Base64 buffer too small!");
+        } else {
+          Serial.println("Unknown base64 error!");
+        }
+        continue;
+      }
+
+      char *send_buf = (char *)&buffer_output;
+      unsigned int send_buf_len = 6 + b64_len_written;
+#elif SERVER_ENCRYPTION == CRYPT_NONE
+      char *send_buf = store.buffer();
+      unsigned int send_buf_len = store.length();
+#endif
+      if (teleClient.transmit(send_buf, send_buf_len)) {
         // successfully sent
         connErrors = 0;
         showStats();

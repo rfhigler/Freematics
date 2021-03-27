@@ -29,6 +29,9 @@
 #define PROTOCOL_UDP 1
 #define PROTOCOL_HTTPS 2
 
+#define CRYPT_CHACHA20 0
+#define CRYPT_NONE 1
+
 #define PROTOCOL_METHOD_GET 0
 #define PROTOCOL_METHOD_POST 1
 
@@ -56,6 +59,8 @@
 // Freematics Hub server settings
 #define SERVER_HOST "hub.freematics.com"
 #define SERVER_PROTOCOL PROTOCOL_UDP
+#define SERVER_ENCRYPTION CRYPT_CHACHA20
+#define CHACHA20_KEY "00000000000000000000000000000000"
 #endif 
 
 // SIM card setting
@@ -67,7 +72,7 @@
 
 #if !SERVER_PORT
 #if SERVER_PROTOCOL == PROTOCOL_UDP
-#define SERVER_PORT 8081
+#define SERVER_PORT 5170
 #elif SERVER_PROTOCOL == PROTOCOL_HTTPS
 #define SERVER_PORT 443
 #endif
